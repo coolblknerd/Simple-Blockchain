@@ -9,6 +9,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log"
+	"net/http"
 	"time"
 )
 
@@ -38,6 +40,23 @@ type Book struct {
 	ISBN        string `json:"isbn"`
 }
 
+type Blockchain struct {
+	blocks []*Block
+}
+
+// This is a global variable that'll return the mutated Blockchain struct
+var Blockchain *Blockchain
+
+func (bc *Blockchain) AddBlock(data BookCheckout) {
+	prevBlock := bc.blocks[len(bc.blocks)-1]
+	block := CreateBlock(prevBlock, data)
+
+	// validate integrity of blocks
+	if validBlock(block, prevBlock) {
+		bc.blocks = append(bc.blocks, block)
+	}
+}
+
 func (b *Block) generateHash() {
 	bytes, _ := json.Marshal(b.Data)
 	data := string(b.Pos) + b.Timestamp + string(bytes) + b.PrevHash
@@ -59,4 +78,48 @@ func CreateBlock(prevBlock *Block, checkoutItem BookCheckout) *Block {
 	block.generateHash()
 
 	return block
+}
+
+func GenesisBlock() *Block {
+	return CreateBlock(&Block{}, BookCheckout{IsGenesis: true})
+}
+
+func NewBlockchain() *Blockchain {
+	return &Blockchain{[]*Block{GenesisBlock()}}
+}
+
+func validBlock(block, prevBlock *Block) bool {
+	if prevBlock.Hash != block.PrevHash {
+		return false
+	}
+
+	if !block.validateHash(block.Hash) {
+		return false
+	}
+
+	if prevBlock.Pos+1 != block.Pos {
+		return false
+	}
+
+	return true
+}
+
+func (b *Block) validateHash(hash string) bool {
+	b.generateHash()
+	if b.Hash != hash {
+		return false
+	}
+
+	return true
+}
+
+func main() {
+	r := mux.NewRouter()
+	r.HandleFunc("/", getBlockchain).Methods("GET")
+	r.HandleFunc("/", writeBlock).Methods("POST")
+	r.HandleFunc("/new", newBook).Methods("POST")
+
+	log.Println("Listening on port 3000")
+
+	log.Fatal(http.ListenAndServe(":3000", r))
 }
